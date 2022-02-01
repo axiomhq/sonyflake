@@ -14,10 +14,16 @@ var startTime int64
 var machineID uint64
 
 func init() {
-	var st Settings
+	var (
+		st  Settings
+		err error
+	)
 	st.StartTime = time.Now()
 
-	sf = NewSonyflake(st)
+	sf, err = NewSonyflake(st)
+	if err != nil {
+		panic(err)
+	}
 	if sf == nil {
 		panic("sonyflake not created")
 	}
@@ -150,26 +156,33 @@ func TestSonyflakeInParallel(t *testing.T) {
 }
 
 func TestNilSonyflake(t *testing.T) {
-	var startInFuture Settings
+	var (
+		startInFuture Settings
+		flake         *Sonyflake
+		err           error
+	)
 	startInFuture.StartTime = time.Now().Add(time.Duration(1) * time.Minute)
-	if NewSonyflake(startInFuture) != nil {
-		t.Errorf("sonyflake starting in the future")
+	flake, err = NewSonyflake(startInFuture)
+	if err != ErrInvalidStartTime || flake != nil {
+		t.Error("Unexpected error", err)
 	}
 
 	var noMachineID Settings
 	noMachineID.MachineID = func() (uint16, error) {
 		return 0, fmt.Errorf("no machine id")
 	}
-	if NewSonyflake(noMachineID) != nil {
-		t.Errorf("sonyflake with no machine id")
+	flake, err = NewSonyflake(noMachineID)
+	if err == nil || err.Error() != "no machine id" {
+		t.Error("unexpected error", err)
 	}
 
 	var invalidMachineID Settings
 	invalidMachineID.CheckMachineID = func(uint16) bool {
 		return false
 	}
-	if NewSonyflake(invalidMachineID) != nil {
-		t.Errorf("sonyflake with invalid machine id")
+	flake, err = NewSonyflake(invalidMachineID)
+	if err != ErrCheckMachineIDFailed {
+		t.Error("unexpected error", err)
 	}
 }
 
@@ -191,12 +204,16 @@ func TestNextIDError(t *testing.T) {
 
 func TestReproducibleIDs(t *testing.T) {
 	now := time.Date(2021, 7, 29, 1, 2, 4, 8, time.UTC)
-	flake := NewSonyflake(Settings{
+	flake, err := NewSonyflake(Settings{
 		StartTime: now.Add(-time.Second),
 		MachineID: func() (uint16, error) {
 			return 127, nil
 		},
 	})
+
+	if err != nil {
+		t.Error("Failed to create sonyflake", err)
+	}
 
 	// Ensure we exhaust the sequence range for the current timestamp
 	const numIDs = 1<<BitLenSequence + 1
