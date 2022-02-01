@@ -30,7 +30,10 @@ func init() {
 
 	startTime = toSonyflakeTime(st.StartTime)
 
-	ip, _ := lower16BitPrivateIP()
+	ip, idErr := MachineID()
+	if idErr != nil {
+		panic(idErr)
+	}
 	machineID = uint64(ip)
 }
 

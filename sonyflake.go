@@ -7,7 +7,9 @@
 package sonyflake
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -16,6 +18,7 @@ import (
 var (
 	ErrInvalidStartTime     = errors.New("StartTime cannot be after current time")
 	ErrCheckMachineIDFailed = errors.New("CheckMachineID call returned false")
+	ErrNoMachineID          = errors.New("failed to generate a valid machine id")
 )
 
 // These constants are the bit lengths of Sonyflake ID parts.
@@ -83,7 +86,7 @@ func NewSonyflake(st Settings) (*Sonyflake, error) {
 
 	var err error
 	if st.MachineID == nil {
-		sf.machineID, err = lower16BitPrivateIP()
+		sf.machineID, err = MachineID()
 	} else {
 		sf.machineID, err = st.MachineID()
 	}
@@ -165,38 +168,80 @@ func (sf *Sonyflake) toID() (uint64, error) {
 		uint64(sf.machineID), nil
 }
 
-func privateIPv4() (net.IP, error) {
-	as, err := net.InterfaceAddrs()
+func isPrivateIPv4(ip net.IP) bool {
+	// See https://en.wikipedia.org/wiki/Reserved_IP_addresses
+	return len(ip) == net.IPv4len &&
+		ip[0] == 10 || // local communications within a private network.
+		ip[0] == 100 && (ip[1] >= 64 && ip[1] < 128) ||
+		ip[0] == 172 && (ip[1] >= 16 && ip[1] < 32) ||
+		ip[0] == 192 && ip[1] == 168 || // ditto
+		ip[0] == 198 && (ip[1] >= 18 && ip[1] < 20)
+}
+
+func isPrivateIPv6(ip net.IP) bool {
+	// See https://en.wikipedia.org/wiki/Reserved_IP_addresses
+	return len(ip) == net.IPv6len &&
+		ip[0] == 0xfc || // fc00: unique local
+		ip[0] == 254 && ip[1] == 128 // fe80: link local
+}
+
+// MachineID tries to compute a "semi unique" ID for this machine.
+// Will return an error if it fails to inspect the network interfaces,
+// or if it completely fails to find a usable ID.
+func MachineID() (uint16, error) {
+	interfaces, err := net.Interfaces()
 	if err != nil {
-		return nil, err
+		return 0, fmt.Errorf("failed to get network interfaces: %w", err)
 	}
 
-	for _, a := range as {
-		ipnet, ok := a.(*net.IPNet)
-		if !ok || ipnet.IP.IsLoopback() {
+	var ipNets []*net.IPNet // Collect IP nets on first pass, to avoid excessive syscalls
+
+	// First try to find a private IPv4 address and use the lower 2 bytes as machine id
+	for _, iface := range interfaces {
+		addrs, addrErr := iface.Addrs()
+		if addrErr != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipnet, isIP := addr.(*net.IPNet)
+			if !isIP || ipnet.IP.IsLoopback() {
+				continue
+			}
+
+			ipNets = append(ipNets, ipnet)
+
+			ip := ipnet.IP.To4()
+			if ip != nil && isPrivateIPv4(ip) {
+				return uint16(ip[2])<<8 + uint16(ip[3]), nil
+			}
+		}
+	}
+
+	// Second try to find a private IPv6 address and use the lower 2 bytes as machine id
+	for _, ipnet := range ipNets {
+		ip := ipnet.IP.To16()
+		if ip != nil && isPrivateIPv6(ip) {
+			return uint16(ip[net.IPv6len-2])<<8 + uint16(ip[net.IPv6len-1]), nil
+		}
+	}
+
+	// last resort, try to base the machine id on the MAC address
+	for _, iface := range interfaces {
+		// Loopback interfaces sometimes have a nil hardware address.
+		if iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
 
-		ip := ipnet.IP.To4()
-		if isPrivateIPv4(ip) {
-			return ip, nil
+		if iface.HardwareAddr != nil {
+			// Docker increments the MAC address by one for each container. Other
+			// systems might do something completely different. To be safe, we hash
+			// the hardware address and take the first two bytes.
+			hash := sha256.New().Sum(iface.HardwareAddr)
+			return uint16(hash[0])<<8 + uint16(hash[1]), nil
 		}
 	}
-	return nil, errors.New("no private ip address")
-}
 
-func isPrivateIPv4(ip net.IP) bool {
-	return ip != nil &&
-		(ip[0] == 10 || ip[0] == 172 && (ip[1] >= 16 && ip[1] < 32) || ip[0] == 192 && ip[1] == 168)
-}
-
-func lower16BitPrivateIP() (uint16, error) {
-	ip, err := privateIPv4()
-	if err != nil {
-		return 0, err
-	}
-
-	return uint16(ip[2])<<8 + uint16(ip[3]), nil
+	return 0, ErrNoMachineID
 }
 
 // Decompose returns a set of Sonyflake ID parts.
