@@ -63,10 +63,10 @@ type Buffer struct {
 }
 
 // NewSonyflake returns a new Sonyflake configured with the given Settings.
-// NewSonyflake returns nil in the following cases:
-// - Settings.StartTime is ahead of the current time.
-// - Settings.MachineID returns an error.
-// - Settings.CheckMachineID returns false.
+// NewSonyflake returns an error in the following cases:
+// - Settings.StartTime is ahead of the current time. The error will be ErrInvalidStartTime.
+// - Settings.MachineID returns an error. The error from the function will be returned.
+// - Settings.CheckMachineID returns false, in which case the error is ErrCheckMachineIDFailed.
 func NewSonyflake(st Settings) (*Sonyflake, error) {
 	sf := new(Sonyflake)
 	sf.mutex = new(sync.Mutex)
