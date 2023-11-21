@@ -159,13 +159,12 @@ func sleepTime(now time.Time, overtime int64) time.Duration {
 }
 
 func (sf *Sonyflake) toID() (uint64, error) {
-	if sf.elapsedTime >= 1<<BitLenTime {
-		return 0, errors.New("over the time limit")
-	}
-
-	return uint64(sf.elapsedTime)<<(BitLenSequence+BitLenMachineID) |
-		uint64(sf.sequence)<<BitLenMachineID |
-		uint64(sf.machineID), nil
+	return Buffer{
+		Time:      uint64(sf.elapsedTime),
+		Sequence:  uint8(sf.sequence),
+		MSB:       0,
+		MachineID: sf.machineID,
+	}.Compose()
 }
 
 func isPrivateIPv4(ip net.IP) bool {
@@ -273,4 +272,14 @@ func DecomposeToBuffer(id uint64, buf *Buffer) {
 	buf.Sequence = uint8(sequence)
 	buf.MSB = uint8(msb)
 	buf.MachineID = uint16(machineID)
+}
+
+func (b Buffer) Compose() (uint64, error) {
+	if b.Time >= 1<<BitLenTime {
+		return 0, errors.New("over the time limit")
+	}
+
+	return uint64(b.Time)<<(BitLenSequence+BitLenMachineID) |
+		uint64(b.Sequence)<<BitLenMachineID |
+		uint64(b.MachineID), nil
 }
