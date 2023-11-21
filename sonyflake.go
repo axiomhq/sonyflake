@@ -19,6 +19,7 @@ var (
 	ErrInvalidStartTime     = errors.New("StartTime cannot be after current time")
 	ErrCheckMachineIDFailed = errors.New("CheckMachineID call returned false")
 	ErrNoMachineID          = errors.New("failed to generate a valid machine id")
+	ErrSequenceOverflow     = errors.New("sequence overflow")
 )
 
 // These constants are the bit lengths of Sonyflake ID parts.
@@ -274,6 +275,7 @@ func DecomposeToBuffer(id uint64, buf *Buffer) {
 	buf.MachineID = uint16(machineID)
 }
 
+// Compose converts a Buffer into a sonyflake ID
 func (b Buffer) Compose() (uint64, error) {
 	if b.Time >= 1<<BitLenTime {
 		return 0, errors.New("over the time limit")
@@ -282,4 +284,14 @@ func (b Buffer) Compose() (uint64, error) {
 	return uint64(b.Time)<<(BitLenSequence+BitLenMachineID) |
 		uint64(b.Sequence)<<BitLenMachineID |
 		uint64(b.MachineID), nil
+}
+
+// Inc increase the sequence number in the buffer by 1, or bumps to the next timestamp if that is not possible.
+func (b *Buffer) Inc() {
+	newSeq := b.Sequence + 1
+	if newSeq <= b.Sequence { // uint8 overflow
+		b.Time++
+		b.Sequence = 0
+	}
+	b.Sequence = newSeq
 }

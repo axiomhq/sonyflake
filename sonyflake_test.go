@@ -280,3 +280,39 @@ func TestReproducibleIDs(t *testing.T) {
 		t.Errorf("idN = %v", idN)
 	}
 }
+
+func TestBufferInc(t *testing.T) {
+	now := time.Date(2021, 7, 29, 1, 2, 4, 8, time.UTC)
+	flake, err := NewSonyflake(Settings{
+		StartTime: now.Add(-time.Second),
+		MachineID: func() (uint16, error) {
+			return 127, nil
+		},
+	})
+
+	if err != nil {
+		t.Error("Failed to create sonyflake", err)
+	}
+
+	startID, err := flake.NextID()
+	if err != nil {
+		t.Error("failed to create initial ID", err)
+	}
+
+	var buf Buffer
+	DecomposeToBuffer(startID, &buf)
+
+	const numTests = 100_000
+	seenIDs := make(map[uint64]struct{}, numTests)
+	for i := 0; i < numTests; i++ {
+		id, err := buf.Compose()
+		if err != nil {
+			t.Error("failed to create id from buffer", err)
+		}
+		if _, ok := seenIDs[id]; ok {
+			t.Error("id", id, "already seen, step:", i)
+		}
+		seenIDs[id] = struct{}{}
+		buf.Inc()
+	}
+}
