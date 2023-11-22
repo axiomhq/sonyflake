@@ -11,9 +11,15 @@ import (
 var sf *sonyflake.Sonyflake
 
 func init() {
-	var st sonyflake.Settings
+	var (
+		st  sonyflake.Settings
+		err error
+	)
 	st.MachineID = awsutil.AmazonEC2MachineID
-	sf = sonyflake.NewSonyflake(st)
+	sf, err = sonyflake.NewSonyflake(st)
+	if err != nil {
+		panic("failed to create sonyflake " + err.Error())
+	}
 	if sf == nil {
 		panic("sonyflake not created")
 	}
