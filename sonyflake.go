@@ -291,7 +291,6 @@ func (b *Buffer) Inc() {
 	newSeq := b.Sequence + 1
 	if newSeq <= b.Sequence { // uint8 overflow
 		b.Time++
-		b.Sequence = 0
 	}
 	b.Sequence = newSeq
 }

@@ -313,6 +313,13 @@ func TestBufferInc(t *testing.T) {
 			t.Error("id", id, "already seen, step:", i)
 		}
 		seenIDs[id] = struct{}{}
+
+		prevSeq := buf.Sequence
 		buf.Inc()
+
+		expectedSeq := (prevSeq == 255 && buf.Sequence == 0) || (prevSeq+1 == buf.Sequence)
+		if !expectedSeq {
+			t.Error("unexpected sequence number", buf.Sequence, ", step:", i)
+		}
 	}
 }
